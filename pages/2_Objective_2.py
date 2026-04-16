@@ -196,7 +196,8 @@ gap_scen["gap_low_mw"] = future_supply_only["yhat"].values - future_demand_only[
 gap_scen["gap_med_mw"] = future_supply_only["yhat"].values - future_demand_only["yhat"].values
 gap_scen["gap_high_mw"] = future_supply_only["yhat"].values - future_demand_only["yhat_upper"].values
 
-gap_monthly = gap_scen.set_index("ds").resample("M").mean().reset_index()
+gap_monthly = gap_scen.set_index("ds").resample("ME").mean().reset_index()
+
 
 # ----------------------------
 # Data center capacity calculation
