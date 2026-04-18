@@ -6,9 +6,15 @@ import numpy as np
 import plotly.express as px
 
 st.set_page_config(page_title="Objective 2 Dashboard", layout="wide")
+st.title("⚡ Objective 2 – Electricity Demand Forecasting and Capacity Assessment")
 
-st.title("Objective 2 - REDUCE ENVIRONMENTAL IMPACT")
-st.write("Daily electricity demand, supply, and supply-demand gap.")
+st.markdown("""
+- Estimated future electricity demand and supply for New Jersey using historical data  
+- Applied Prophet  time-series model to forecast energy trends for 2026–2030  
+- Calculated supply–demand gap under different growth scenarios (low, medium, high)  
+- Used surplus energy to estimate the number of data centers that can be supported  
+- Scaled results to New Jersey level using peak load ratio (PJME  to NJ)  
+""")
 
 # ----------------------------
 # File paths (LOCAL on your Mac)
@@ -24,13 +30,7 @@ load_files = sorted(glob.glob(f"{LOAD_DIR}/*.csv"))
 gen_files  = sorted(glob.glob(f"{GEN_DIR}/*.csv"))
 net_files  = sorted(glob.glob(f"{NET_DIR}/*.csv"))
 
-# ----------------------------
-# Check files exist
-# ----------------------------
-st.subheader("File Check")
-st.write("Load files found:", len(load_files))
-st.write("Generation files found:", len(gen_files))
-st.write("Net import files found:", len(net_files))
+
 
 # ----------------------------
 # Load and clean data
@@ -85,7 +85,6 @@ def load_all_data():
     return load, gen, net, peak
 
 load, gen, net, peak = load_all_data()
-
 # ----------------------------
 # Daily demand
 # ----------------------------
@@ -135,7 +134,6 @@ daily = daily_demand.merge(
 )
 
 daily["gap_mw"] = daily["supply_mw"] - daily["demand_mw"]
-
 # ----------------------------
 # Forecast demand
 # ----------------------------
@@ -187,7 +185,6 @@ def build_supply_forecast(daily_df):
 forecast_demand, future_demand_only = build_demand_forecast(daily)
 forecast_supply, future_supply_only = build_supply_forecast(daily)
 
-
 # ----------------------------
 # Future gap scenarios
 # ----------------------------
@@ -197,8 +194,6 @@ gap_scen["gap_med_mw"] = future_supply_only["yhat"].values - future_demand_only[
 gap_scen["gap_high_mw"] = future_supply_only["yhat"].values - future_demand_only["yhat_upper"].values
 
 gap_monthly = gap_scen.set_index("ds").resample("ME").mean().reset_index()
-
-
 # ----------------------------
 # Data center capacity calculation
 # ----------------------------
@@ -229,13 +224,6 @@ share["nj_share"] = share["pseg_peak_mw"] / share["pjme_peak_mw"]
 
 avg_nj_share = share["nj_share"].mean()
 
-# Add NJ-scaled DC capacity
-dc_capacity["ds"] = pd.to_datetime(dc_capacity["ds"], errors="coerce")
-dc_capacity["year"] = dc_capacity["ds"].dt.year
-dc_capacity["nj_dc_low"] = (dc_capacity["dc_low"] * avg_nj_share).astype(int)
-dc_capacity["nj_dc_med"] = (dc_capacity["dc_med"] * avg_nj_share).astype(int)
-dc_capacity["nj_dc_high"] = (dc_capacity["dc_high"] * avg_nj_share).astype(int)
-
 # ----------------------------
 # Sidebar date filter
 # ----------------------------
@@ -259,16 +247,63 @@ if len(date_range) == 2:
     ].copy()
 else:
     filtered_daily = daily.copy()
+st.sidebar.header("Filters")
+
+section_choice = st.sidebar.selectbox(
+    "Select section",
+    [
+        "Show All",
+        "Forecasting Method",
+        "Historical Trends",
+        "Historical Summary Table",
+        "Growth Scenarios & Forecasted Trends",
+        "Capacity Estimation & Calculation",
+        "NJ Scaling",
+        "Final Capacity Table"
+    ],
+    index=0
+)
+
+min_date = daily["ds"].min().date()
+max_date = daily["ds"].max().date()
+
+# Add NJ-scaled DC capacity
+dc_capacity["ds"] = pd.to_datetime(dc_capacity["ds"], errors="coerce")
+dc_capacity["year"] = dc_capacity["ds"].dt.year
+dc_capacity["nj_dc_low"] = (dc_capacity["dc_low"] * avg_nj_share).astype(int)
+dc_capacity["nj_dc_med"] = (dc_capacity["dc_med"] * avg_nj_share).astype(int)
+dc_capacity["nj_dc_high"] = (dc_capacity["dc_high"] * avg_nj_share).astype(int)
+
+if section_choice in ["Show All", "Forecasting Method"]:
+	st.subheader("🧠 Forecasting Method")
+
+	st.markdown("""
+	- Derived daily electricity demand and supply from historical data  
+	- Calculated total supply using generation and net imports  
+	- Estimated supply–demand gap  
+	- Applied Prophet model to forecast demand and supply for 5 years  
+	""")
+
+	st.latex(r"Supply_t = Generation_t + NetImports_t")
+	st.latex(r"Gap_t = Supply_t - Demand_t")
+
+
 
 # ----------------------------
 # Summary metrics
 # ----------------------------
-st.subheader("Summary")
-col1, col2, col3 = st.columns(3)
 
-col1.metric("Average Demand (MW)", f"{filtered_daily['demand_mw'].mean():,.0f}")
-col2.metric("Average Supply (MW)", f"{filtered_daily['supply_mw'].mean():,.0f}")
-col3.metric("Average Gap (MW)", f"{filtered_daily['gap_mw'].mean():,.0f}")
+	st.subheader("📌 Key Energy Indicators")
+	st.markdown("""
+	- Snapshot of average demand, supply, and gap  
+	- Helps understand overall energy balance  
+	""")
+
+	col1, col2, col3 = st.columns(3)
+
+	col1.metric("Average Demand (MW)", f"{filtered_daily['demand_mw'].mean():,.0f}")
+	col2.metric("Average Supply (MW)", f"{filtered_daily['supply_mw'].mean():,.0f}")
+	col3.metric("Average Gap (MW)", f"{filtered_daily['gap_mw'].mean():,.0f}")
 
 # ----------------------------
 # Charts
@@ -310,104 +345,243 @@ fig3.update_traces(
 fig3.add_hline(y=0)
 fig3.update_layout(hovermode="x unified", template="plotly_white")
 
-st.subheader("Charts")
+#-----------------#
+#-----------------#
+if section_choice in ["Show All", "Historical Trends"]:
+	st.subheader("📊 Historical Demand, Supply, and Gap Trends")
+	st.markdown("""
+	- Shows historical demand, supply, and gap trends  
+	- Helps understand baseline energy patterns  
+	""")
 
-st.plotly_chart(fig1, use_container_width=True)
-st.plotly_chart(fig2, use_container_width=True)
-st.plotly_chart(fig3, use_container_width=True)
-
-# ----------------------------
-# Forecast charts
-# ----------------------------
-st.subheader("Forecast Charts")
-
-fig_d = px.line(
-    forecast_demand,
-    x="ds",
-    y="yhat",
-    title="Forecasted Electricity Demand (MW)",
-    labels={"ds": "Date", "yhat": "Demand Forecast (MW)"}
-)
-fig_d.update_traces(
-    hovertemplate="Date: %{x|%Y-%m-%d}<br>Forecast (MW): %{y:,.0f}<extra></extra>"
-)
-fig_d.update_layout(template="plotly_white", hovermode="x unified")
-
-fig_s = px.line(
-    forecast_supply,
-    x="ds",
-    y="yhat",
-    title="Forecasted Electricity Supply (MW)",
-    labels={"ds": "Date", "yhat": "Supply Forecast (MW)"}
-)
-fig_s.update_traces(
-    hovertemplate="Date: %{x|%Y-%m-%d}<br>Forecast (MW): %{y:,.0f}<extra></extra>"
-)
-fig_s.update_layout(template="plotly_white", hovermode="x unified")
-
-plot_df = gap_scen.melt(
-    id_vars="ds",
-    value_vars=["gap_low_mw", "gap_med_mw", "gap_high_mw"],
-    var_name="scenario",
-    value_name="gap_mw"
-)
-
-fig_gap = px.line(
-    plot_df,
-    x="ds",
-    y="gap_mw",
-    color="scenario",
-    title="Future Supply-Demand Gap (Low / Medium / High Demand Scenarios)",
-    labels={"ds": "Date", "gap_mw": "Gap (MW)", "scenario": "Scenario"}
-)
-fig_gap.add_hline(y=0)
-fig_gap.update_traces(
-    hovertemplate="Date: %{x|%Y-%m-%d}<br>Gap (MW): %{y:,.0f}<extra></extra>"
-)
-fig_gap.update_layout(template="plotly_white", hovermode="x unified")
-
-plot_df_m = gap_monthly.melt(
-    id_vars="ds",
-    value_vars=["gap_low_mw", "gap_med_mw", "gap_high_mw"],
-    var_name="scenario",
-    value_name="gap_mw"
-)
-
-fig_gap_m = px.line(
-    plot_df_m,
-    x="ds",
-    y="gap_mw",
-    color="scenario",
-    title="Future Supply-Demand Gap (Monthly Avg) — Low/Med/High Demand Scenarios",
-    labels={"ds": "Month", "gap_mw": "Gap (MW)", "scenario": "Scenario"}
-)
-fig_gap_m.add_hline(y=0)
-fig_gap_m.update_traces(
-    hovertemplate="Month: %{x|%Y-%m}<br>Gap (MW): %{y:,.0f}<extra></extra>"
-)
-fig_gap_m.update_layout(template="plotly_white", hovermode="x unified")
-
-st.plotly_chart(fig_d, use_container_width=True)
-st.plotly_chart(fig_s, use_container_width=True)
-st.plotly_chart(fig_gap, use_container_width=True)
-st.plotly_chart(fig_gap_m, use_container_width=True)
+	st.plotly_chart(fig1, use_container_width=True)
+	st.plotly_chart(fig2, use_container_width=True)
+	st.plotly_chart(fig3, use_container_width=True)
 
 # ----------------------------
 # Show data table
 # ----------------------------
-st.subheader("Filtered Data")
-st.dataframe(filtered_daily)
+if section_choice in ["Show All", "Historical Summary Table"]:
+	st.subheader("📋 Historical Daily Energy Summary")
+	st.markdown("""
+	- Displays daily demand, supply, and gap values  
+	- Used as input for forecasting analysis  
+	""")
+
+	filtered_daily_display = filtered_daily.rename(columns={
+    	"ds": "Date",
+    	"demand_mw": "Electricity Demand (MW)",
+    	"gen_mw": "Electricity Generation (MW)",
+    	"net_mw": "Net Imports (MW)",
+    	"supply_mw": "Total Supply (MW)",
+    	"gap_mw": "Supply–Demand Gap (MW)"
+	})
+
+	st.dataframe(filtered_daily_display, use_container_width=True)
+if section_choice in ["Show All", "Growth Scenarios & Forecasted Trends"]:
+	st.subheader("📈 Future Demand Growth Scenarios")
+
+
+
+	st.markdown("""
+	Three demand growth scenarios considered to evaluate future uncertainty 
+	- Low: 0.5% growth  
+	- Medium: 1.5% growth  
+	- High: 3.0% growth 
+	""")
+
+
+# ----------------------------
+# Forecast charts
+# ----------------------------
+
+	st.subheader("🔮 Forecasted Energy Trends (2026–2030)")
+	st.markdown("""
+	- Shows predicted demand and supply trends  
+	- Displays future supply–demand gap  
+	- Used to assess long-term energy feasibility  
+	""")
+	fig_d = px.line(
+    	forecast_demand,
+    	x="ds",
+    	y="yhat",
+    	title="Forecasted Electricity Demand (MW)",
+    	labels={"ds": "Date", "yhat": "Demand Forecast (MW)"}
+	)
+	fig_d.update_traces(
+    	hovertemplate="Date: %{x|%Y-%m-%d}<br>Forecast (MW): %{y:,.0f}<extra></extra>"
+	)
+	fig_d.update_layout(template="plotly_white", hovermode="x unified")
+
+	fig_s = px.line(
+    	forecast_supply,
+   	x="ds",
+    	y="yhat",
+    	title="Forecasted Electricity Supply (MW)",
+    	labels={"ds": "Date", "yhat": "Supply Forecast (MW)"}
+	)
+	fig_s.update_traces(
+    	hovertemplate="Date: %{x|%Y-%m-%d}<br>Forecast (MW): %{y:,.0f}<extra></extra>"
+	)
+	fig_s.update_layout(template="plotly_white", hovermode="x unified")
+
+	plot_df = gap_scen.melt(
+    	id_vars="ds",
+    	value_vars=["gap_low_mw", "gap_med_mw", "gap_high_mw"],
+    	var_name="scenario",
+    	value_name="gap_mw"
+	)
+
+	fig_gap = px.line(
+    	plot_df,
+    	x="ds",
+    	y="gap_mw",
+    	color="scenario",
+    	title="Future Supply-Demand Gap (Low / Medium / High Demand Scenarios)",
+    	labels={"ds": "Date", "gap_mw": "Gap (MW)", "scenario": "Scenario"}
+	)
+	fig_gap.add_hline(y=0)
+	fig_gap.update_traces(
+    	hovertemplate="Date: %{x|%Y-%m-%d}<br>Gap (MW): %{y:,.0f}<extra></extra>"
+	)
+	fig_gap.update_layout(template="plotly_white", hovermode="x unified")
+
+	plot_df_m = gap_monthly.melt(
+    	id_vars="ds",
+    	value_vars=["gap_low_mw", "gap_med_mw", "gap_high_mw"],
+    	var_name="scenario",
+    	value_name="gap_mw"
+	)
+
+	fig_gap_m = px.line(
+    	plot_df_m,
+    	x="ds",
+    	y="gap_mw",
+    	color="scenario",
+    	title="Future Supply-Demand Gap (Monthly Avg) — Low/Med/High Demand Scenarios",
+    	labels={"ds": "Month", "gap_mw": "Gap (MW)", "scenario": "Scenario"}
+	)
+	fig_gap_m.add_hline(y=0)
+	fig_gap_m.update_traces(
+    	hovertemplate="Month: %{x|%Y-%m}<br>Gap (MW): %{y:,.0f}<extra></extra>"
+	)
+	fig_gap_m.update_layout(template="plotly_white", hovermode="x unified")
+
+	st.plotly_chart(fig_d, use_container_width=True)
+	st.plotly_chart(fig_s, use_container_width=True)
+	st.plotly_chart(fig_gap, use_container_width=True)
+	st.plotly_chart(fig_gap_m, use_container_width=True)
+
+if section_choice in ["Show All", "Capacity Estimation & Calculation"]:
+	st.subheader("🏗️ Data Center Capacity Estimation")
+	st.markdown("""
+	- Uses surplus energy to estimate data center capacity  
+	- Only positive gap (surplus) is considered  
+	- Each data center assumed to require 30 MW  
+	""")
+
+	st.latex(r"Surplus_t = \max(0, Gap_t)")
+	st.latex(r"DC_t = \left\lfloor \frac{Surplus_t}{P_{DC}} \right\rfloor")
+
+	st.markdown("""
+	- Calculation performed for low, medium, and high scenarios  
+	""")
+
+	st.latex(r"DC_{low,t} = \left\lfloor \frac{Surplus_{low,t}}{30} \right\rfloor")
+	st.latex(r"DC_{med,t} = \left\lfloor \frac{Surplus_{med,t}}{30} \right\rfloor")
+	st.latex(r"DC_{high,t} = \left\lfloor \frac{Surplus_{high,t}}{30} \right\rfloor")
+	st.subheader("🧮 How Data Centers Are Calculated")
+
+	st.markdown("""
+	- Demonstrates conversion from surplus energy to data centers  
+	- Values are divided by 30 MW and rounded down  
+	""")
+
+	dc_sample = dc_capacity[[
+    	"ds",
+    	"surplus_low",
+    	"surplus_med",
+   	 "surplus_high",
+    	"dc_low",
+    	"dc_med",
+    	"dc_high"
+	]].rename(columns={
+    	"ds": "Date",
+    	"surplus_low": "Available Surplus (Low Scenario)",
+    	"surplus_med": "Available Surplus (Medium Scenario)",
+    	"surplus_high": "Available Surplus (High Scenario)",
+    	"dc_low": "Estimated Data Centers (Low)",
+    	"dc_med": "Estimated Data Centers (Medium)",
+    	"dc_high": "Estimated Data Centers (High)"
+	})
+
+	st.dataframe(dc_sample.head(10), use_container_width=True)
+
+if section_choice in ["Show All", "NJ Scaling"]:
+	st.subheader("📑 Peak Load Ratio Used for New Jersey Scaling")
+	st.markdown("""
+	- Compares PJME peak load with PSEG (NJ) peak load  
+	- Used to estimate New Jersey's share of total capacity  
+	""")
+
+
+
+	share_display = share.rename(columns={
+    	"year": "Year",
+    	"pseg_peak_mw": "PSEG Peak Load (MW)",
+    	"pjme_peak_mw": "PJME Peak Load (MW)",
+    	"nj_share": "New Jersey Share of PJME"
+	})
+
+	share_display["New Jersey Share of PJME"] = share_display["New Jersey Share of PJME"].round(4)
+
+	st.dataframe(share_display, use_container_width=True)
+
+	st.info(f"Average New Jersey share used for scaling: {avg_nj_share:.4f}")
+
+
+	st.markdown("""
+	- Assumed each data center requires **30 MW** of power  
+	- Estimated total data center capacity using available surplus energy  
+	- Converted regional (PJME) capacity to New Jersey capacity  
+	- Used ratio of NJ peak demand (PSEG) to PJME peak demand  
+	- Averaged this ratio across years to get NJ share  
+	- Scaled PJME capacity using this share to get NJ-specific estimates  
+	""")
+
+	st.latex(r"NJ\ Share_y = \frac{PSEG\ Peak_y}{PJME\ Peak_y}")
+	st.latex(r"Average\ NJ\ Share = \frac{1}{n}\sum_{y=1}^{n} NJ\ Share_y")
+	st.latex(r"NJ\ DC\ Capacity_t = PJME\ DC\ Capacity_t \times Average\ NJ\ Share")
+
+
+
+
+
 
 # ----------------------------
 # PJME vs NJ-scaled DC capacity table
 # ----------------------------
-st.subheader("PJME vs NJ-scaled DC Capacity")
+if section_choice in ["Show All", "Final Capacity Table"]:
+	st.subheader("🏢 Estimated Data Center Support Capacity")
+	st.markdown("""
+	- Shows estimated data center capacity under all scenarios  
+	- Includes both PJME and New Jersey estimates  
+	- Helps compare regional vs state-level capacity  
+	""")
+	dc_display = dc_capacity[[
+    	"year", "ds",
+    	"dc_low", "nj_dc_low",
+    	"dc_med", "nj_dc_med",
+    	"dc_high", "nj_dc_high"
+	]].rename(columns={
+    	"year": "Year",
+    	"ds": "Month",
+    	"dc_low": "PJME Capacity (Low Growth – 0.5%)",
+    	"nj_dc_low": "NJ Capacity (Low Growth – 0.5%)",
+    	"dc_med": "PJME Capacity (Medium Growth – 1.5%)",
+     	"nj_dc_med": "NJ Capacity (Medium Growth – 1.5%)",
+    	"dc_high": "PJME Capacity (High Growth – 3.0%)",
+    	"nj_dc_high": "NJ Capacity (High Growth – 3.0%)"
+	})
 
-dc_display = dc_capacity[[
-    "year", "ds",
-    "dc_low", "nj_dc_low",
-    "dc_med", "nj_dc_med",
-    "dc_high", "nj_dc_high"
-]]
-
-st.dataframe(dc_display)
+	st.dataframe(dc_display, use_container_width=True)

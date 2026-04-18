@@ -6,12 +6,15 @@ from streamlit_folium import st_folium
 
 st.set_page_config(page_title="Objective 3", layout="wide")
 
-st.title("Objective 3 – Transformer Scenario Cost Dashboard")
-st.write(
-    "This dashboard compares parcel suitability under 120kV, 240kV, and 360kV "
-    "transformer scenarios using total cost and cost efficiency."
-)
+st.title("🏗️ Objective 3 – Transformer Scenario Cost and Parcel Feasibility Analysis")
 
+st.markdown("""
+- Evaluates economic feasibility of candidate parcels  
+- Considers different transformer voltage scenarios (120kV, 240kV, 360kV)  
+- Combines infrastructure cost and equipment cost  
+- Ranks parcels based on cost efficiency  
+- Displays results using tables and interactive maps  
+""")
 # ----------------------------
 # File paths
 # ----------------------------
@@ -28,7 +31,29 @@ map_files = {
     "240kV": f"{BASE}/objective3_map_240kV.csv",
     "360kV": f"{BASE}/objective3_map_360kV.csv",
 }
-
+scenario_costs = {
+    "120kV": {
+        "transformer": 200000,
+        "switchgear": 60000,
+        "ups_battery": 300000,
+        "pdu": 20000,
+        "generator": 120000
+    },
+    "240kV": {
+        "transformer": 500000,
+        "switchgear": 90000,
+        "ups_battery": 350000,
+        "pdu": 20000,
+        "generator": 150000
+    },
+    "360kV": {
+        "transformer": 800000,
+        "switchgear": 120000,
+        "ups_battery": 420000,
+        "pdu": 20000,
+        "generator": 180000
+    }
+}
 # ----------------------------
 # Load helpers
 # ----------------------------
@@ -43,7 +68,7 @@ def load_scenario_map(path):
 # ----------------------------
 # Sidebar filters
 # ----------------------------
-st.sidebar.header("Filters")
+st.sidebar.header("⚙️ Scenario Controls")
 
 scenario = st.sidebar.selectbox(
     "Select transformer scenario",
@@ -56,6 +81,28 @@ top_n = st.sidebar.selectbox(
     [10, 20, 50, 100],
     index=0
 )
+selected_costs = scenario_costs[scenario]
+
+total_equipment_cost = (
+    selected_costs["transformer"] +
+    selected_costs["switchgear"] +
+    selected_costs["ups_battery"] +
+    selected_costs["pdu"] +
+    selected_costs["generator"]
+)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader(f"💰 {scenario} Equipment Cost Assumptions")
+st.sidebar.markdown(f"""
+- **Transformer:** ${selected_costs['transformer']:,}
+- **Switchgear:** ${selected_costs['switchgear']:,}
+- **UPS & Battery:** ${selected_costs['ups_battery']:,}
+- **PDU:** ${selected_costs['pdu']:,}
+- **Generator:** ${selected_costs['generator']:,}
+- **Total Equipment Cost:** ${total_equipment_cost:,}
+""")
+
+
 
 # ----------------------------
 # Load selected data
@@ -72,20 +119,54 @@ map_df["rank"] = map_df.index + 1
 
 filtered = df.head(top_n).copy()
 filtered_map = map_df.head(top_n).copy()
+st.subheader("🧠 Cost Evaluation Method")
+
+st.markdown("""
+- Estimates total development cost for each parcel  
+- Calculates grid cost using distance to substation and transmission lines  
+- Uses fixed cost per mile for infrastructure connection  
+- Adds equipment cost based on selected voltage scenario  
+- Ranks parcels using normalized cost-efficiency score (lower cost = higher efficiency)  
+""")
+
+st.latex(r"Substation\ Access\ Cost_i = Distance\ to\ Substation_i \times 2{,}290{,}000")
+st.latex(r"Transmission\ Connection\ Cost_i = Distance\ to\ Transmission_i \times 2{,}290{,}000")
+st.latex(r"Grid\ Cost_i = Substation\ Access\ Cost_i + Transmission\ Connection\ Cost_i")
+st.latex(r"Equipment\ Cost_s = Transformer_s + Switchgear_s + UPS/Battery_s + PDU_s + Generator_s")
+st.latex(r"Total\ Cost_i = Grid\ Cost_i + Equipment\ Cost_s")
+st.latex(r"Cost\ Index_i = \frac{Total\ Cost_i - \min(Total\ Cost)}{\max(Total\ Cost) - \min(Total\ Cost)}")
+st.latex(r"Cost\ Efficiency_i = 1 - Cost\ Index_i")
+
+st.markdown("""
+- i represents each parcel  
+- s represents selected transformer scenario  
+- Higher cost-efficiency score indicates more economically favorable parcels  
+""")
+st.info(
+    "Note: Grid-related infrastructure cost is estimated using a fixed cost of $2,290,000 per mile "
+    "for both substation access and transmission connection."
+)
 
 # ----------------------------
 # KPI row
 # ----------------------------
 col1, col2, col3 = st.columns(3)
+col1.metric("Selected Voltage Scenario", scenario)
+col2.metric("Parcels Displayed", f"{len(filtered)}")
+col3.metric("Highest Normalized Cost Efficiency", f"{filtered['cost_efficiency'].max():.4f}" if len(filtered) else "N/A")
 
-col1.metric("Scenario", scenario)
-col2.metric("Top Parcels Shown", f"{len(filtered)}")
-col3.metric("Best Cost Efficiency", f"{filtered['cost_efficiency'].max():.4f}" if len(filtered) else "N/A")
 
 # ----------------------------
 # Summary table
 # ----------------------------
-st.subheader("Top Ranked Parcels")
+st.subheader("📋 Ranked Parcel Feasibility Table")
+
+st.markdown("""
+- Displays top-ranked parcels based on cost efficiency  
+- Shows distances to substation and transmission lines  
+- Includes grid cost, equipment cost, and total development cost  
+- Helps compare parcels under the selected voltage scenario  
+""")
 
 table_cols = [
     "rank",
@@ -103,12 +184,38 @@ table_cols = [
 ]
 
 available_cols = [c for c in table_cols if c in filtered.columns]
-st.dataframe(filtered[available_cols], use_container_width=True)
+
+display_table = filtered[available_cols].rename(columns={
+    "rank": "Rank",
+    "PAMS_PIN": "Parcel ID",
+    "GIS_PIN": "GIS Parcel ID",
+    "COUNTY": "County",
+    "MUN_NAME": "Municipality",
+    "PROP_LOC": "Property Location",
+    "dist_to_sub_miles": "Distance to Nearest Substation (miles)",
+    "dist_to_trans_miles": "Distance to NearestTransmission Line (miles)",
+    "grid_cost": "Estimated Grid Connection Cost ($)",
+    "equipment_cost": "Estimated Equipment Cost ($)",
+    "total_cost": "Estimated Total Development Cost ($)",
+    "cost_efficiency": "Normalized Cost Efficiency Score"
+})
+
+st.dataframe(display_table, use_container_width=True)
+
+
 
 # ----------------------------
 # Map
 # ----------------------------
-st.subheader("Interactive Parcel Map")
+st.subheader("🗺️ Interactive Parcel Feasibility Map")
+
+st.markdown("""
+- Shows spatial distribution of top-ranked parcels  
+- Each marker represents a parcel location  
+- Displays parcel details including cost and distances  
+- Helps identify geographically favorable sites  
+""")
+st.markdown("💡 Hover or click on markers to view parcel details.")
 
 if len(filtered_map) == 0:
     st.warning("No parcels available for the selected filters.")
@@ -124,7 +231,6 @@ else:
         )
 
         cluster = MarkerCluster(name="Top Parcels").add_to(m)
-
         for _, row in filtered_map.iterrows():
             popup_text = f"""
             <div style="font-family: Arial; font-size: 14px; line-height: 1.6;">
@@ -132,15 +238,17 @@ else:
                     📍 Parcel Rank #{row['rank']}
                 </div>
                 <div>🧾 <b>Parcel ID:</b> {row.get('PAMS_PIN', 'NA')}</div>
-                <div>🗂️ <b>GIS PIN:</b> {row.get('GIS_PIN', 'NA')}</div>
-                <div>🏠 <b>Address:</b> {row.get('PROP_LOC', 'NA')}</div>
+                <div>🗂️ <b>GIS Parcel ID:</b> {row.get('GIS_PIN', 'NA')}</div>
+                <div>🏠 <b>Property Location:</b> {row.get('PROP_LOC', 'NA')}</div>
                 <div>🗺️ <b>County:</b> {row.get('COUNTY', 'NA')}</div>
                 <div>🏙️ <b>Municipality:</b> {row.get('MUN_NAME', 'NA')}</div>
                 <div>📏 <b>Distance to Substation:</b> {row['dist_to_sub_miles']:.4f} miles</div>
-                <div>🔌 <b>Distance to Transmission:</b> {row['dist_to_trans_miles']:.4f} miles</div>
-                <div>💰 <b>Total Cost:</b> ${row['total_cost']:,.2f}</div>
-                <div>⚡ <b>Cost Efficiency:</b> {row['cost_efficiency']:.4f}</div>
-                <div>🏭 <b>Scenario:</b> {scenario}</div>
+                <div>🔌 <b>Distance to Transmission Line:</b> {row['dist_to_trans_miles']:.4f} miles</div>
+                <div>💵 <b>Grid Connection Cost:</b> ${row['grid_cost']:,.2f}</div>
+                <div>⚙️ <b>Equipment Cost:</b> ${row['equipment_cost']:,.2f}</div>
+                <div>💰 <b>Total Development Cost:</b> ${row['total_cost']:,.2f}</div>
+                <div>📊 <b>Normalized Cost Efficiency Score:</b> {row['cost_efficiency']:.4f}</div>
+                <div>⚡ <b>Voltage Scenario:</b> {scenario}</div>
             </div>
             """
 
@@ -168,13 +276,14 @@ else:
                 tooltip=f"{row.get('PAMS_PIN', 'Parcel')} | Rank {row['rank']}",
                 icon=folium.DivIcon(html=icon_html)
             ).add_to(cluster)
-
+        
         st_folium(m, width=None, height=650)
 
 # ----------------------------
 # Download
 # ----------------------------
-csv_data = filtered[available_cols].to_csv(index=False).encode("utf-8")
+
+csv_data = display_table.to_csv(index=False).encode("utf-8")
 st.download_button(
     "Download filtered parcel list as CSV",
     data=csv_data,
