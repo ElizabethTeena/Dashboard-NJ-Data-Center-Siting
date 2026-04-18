@@ -135,6 +135,16 @@ daily = daily_demand.merge(
 
 daily["gap_mw"] = daily["supply_mw"] - daily["demand_mw"]
 # ----------------------------
+# Normalize historical series
+# ----------------------------
+daily["demand_norm"] = daily["demand_mw"] / daily["demand_mw"].mean()
+daily["supply_norm"] = daily["supply_mw"] / daily["supply_mw"].mean()
+
+# Gap can be tricky because its mean may be very close to 0.
+# Using absolute mean is safer for display.
+gap_scale = daily["gap_mw"].abs().mean()
+daily["gap_norm"] = daily["gap_mw"] / gap_scale if gap_scale != 0 else 0
+# ----------------------------
 # Forecast demand
 # ----------------------------
 @st.cache_data
@@ -228,29 +238,85 @@ avg_nj_share = share["nj_share"].mean()
 # Sidebar date filter
 # ----------------------------
 st.sidebar.header("Filters")
+st.sidebar.markdown("### 📅 Historical Date Filter")
 
 min_date = daily["ds"].min().date()
 max_date = daily["ds"].max().date()
-
-date_range = st.sidebar.date_input(
-    "Select date range",
-    value=(min_date, max_date),
+start_date = st.sidebar.date_input(
+    "Start date",
     min_value=min_date,
-    max_value=max_date
+    max_value=max_date,
+    value=min_date
 )
 
-if len(date_range) == 2:
-    start_date, end_date = date_range
-    filtered_daily = daily[
+end_date = st.sidebar.date_input(
+    "End date",
+    min_value=min_date,
+    max_value=max_date,
+    value=max_date
+)
+
+if start_date > end_date:
+    st.sidebar.error("Start date must be before end date")
+filtered_daily = daily[
         (daily["ds"].dt.date >= start_date) &
         (daily["ds"].dt.date <= end_date)
     ].copy()
-else:
-    filtered_daily = daily.copy()
-st.sidebar.header("Filters")
+
+st.sidebar.markdown("### 🔮 Forecast Date Filter")
+
+forecast_min_date = future_demand_only["ds"].min().date()
+forecast_max_date = future_demand_only["ds"].max().date()
+
+forecast_start_date = st.sidebar.date_input(
+    "Forecast start date",
+    min_value=forecast_min_date,
+    max_value=forecast_max_date,
+    value=forecast_min_date,
+    key="forecast_start_date"
+)
+
+forecast_end_date = st.sidebar.date_input(
+    "Forecast end date",
+    min_value=forecast_min_date,
+    max_value=forecast_max_date,
+    value=forecast_max_date,
+    key="forecast_end_date"
+)
+
+if forecast_start_date > forecast_end_date:
+    st.sidebar.error("Forecast start date must be before forecast end date")
+filtered_future_demand = future_demand_only[
+    (future_demand_only["ds"].dt.date >= forecast_start_date) &
+    (future_demand_only["ds"].dt.date <= forecast_end_date)
+].copy()
+
+filtered_future_supply = future_supply_only[
+    (future_supply_only["ds"].dt.date >= forecast_start_date) &
+    (future_supply_only["ds"].dt.date <= forecast_end_date)
+].copy()
+
+filtered_gap_scen = gap_scen[
+    (gap_scen["ds"].dt.date >= forecast_start_date) &
+    (gap_scen["ds"].dt.date <= forecast_end_date)
+].copy()
+
+
+# Add NJ-scaled DC capacity
+dc_capacity["ds"] = pd.to_datetime(dc_capacity["ds"], errors="coerce")
+dc_capacity["year"] = dc_capacity["ds"].dt.year
+dc_capacity["nj_dc_low"] = (dc_capacity["dc_low"] * avg_nj_share).astype(int)
+dc_capacity["nj_dc_med"] = (dc_capacity["dc_med"] * avg_nj_share).astype(int)
+dc_capacity["nj_dc_high"] = (dc_capacity["dc_high"] * avg_nj_share).astype(int)
+
+filtered_dc_capacity = dc_capacity[
+    (dc_capacity["ds"].dt.date >= forecast_start_date) &
+    (dc_capacity["ds"].dt.date <= forecast_end_date)
+].copy()
+st.sidebar.markdown("### 📂 Section Navigation")
 
 section_choice = st.sidebar.selectbox(
-    "Select section",
+    "Choose section",
     [
         "Show All",
         "Forecasting Method",
@@ -264,15 +330,9 @@ section_choice = st.sidebar.selectbox(
     index=0
 )
 
-min_date = daily["ds"].min().date()
-max_date = daily["ds"].max().date()
 
-# Add NJ-scaled DC capacity
-dc_capacity["ds"] = pd.to_datetime(dc_capacity["ds"], errors="coerce")
-dc_capacity["year"] = dc_capacity["ds"].dt.year
-dc_capacity["nj_dc_low"] = (dc_capacity["dc_low"] * avg_nj_share).astype(int)
-dc_capacity["nj_dc_med"] = (dc_capacity["dc_med"] * avg_nj_share).astype(int)
-dc_capacity["nj_dc_high"] = (dc_capacity["dc_high"] * avg_nj_share).astype(int)
+
+
 
 if section_choice in ["Show All", "Forecasting Method"]:
 	st.subheader("🧠 Forecasting Method")
@@ -347,17 +407,56 @@ fig3.update_layout(hovermode="x unified", template="plotly_white")
 
 #-----------------#
 #-----------------#
+
 if section_choice in ["Show All", "Historical Trends"]:
-	st.subheader("📊 Historical Demand, Supply, and Gap Trends")
-	st.markdown("""
-	- Shows historical demand, supply, and gap trends  
-	- Helps understand baseline energy patterns  
-	""")
 
-	st.plotly_chart(fig1, use_container_width=True)
-	st.plotly_chart(fig2, use_container_width=True)
-	st.plotly_chart(fig3, use_container_width=True)
+    st.subheader("📊 Historical Demand, Supply, and Gap Trends")
+    st.markdown("""
+    - Historical demand, supply, and gap normalized for trend comparison  
+    - Each series is scaled by its mean so the average equals 1  
+    - Separate charts make each trend easier to read  
+    """)
 
+    fig_demand_norm = px.line(
+        filtered_daily,
+        x="ds",
+        y="demand_norm",
+        title="Normalized Historical Electricity Demand",
+        labels={"ds": "Date", "demand_norm": "Normalized Demand (Mean = 1)"}
+    )
+    fig_demand_norm.update_traces(
+    hovertemplate="Date: %{x|%Y-%m-%d}<br>Value: %{y:.2f}<extra></extra>"
+    )
+    fig_demand_norm.add_hline(y=1, line_dash="dash")
+
+    fig_supply_norm = px.line(
+        filtered_daily,
+        x="ds",
+        y="supply_norm",
+        title="Normalized Historical Electricity Supply",
+        labels={"ds": "Date", "supply_norm": "Normalized Supply (Mean = 1)"}
+    )
+    fig_supply_norm.update_traces(
+    hovertemplate="Date: %{x|%Y-%m-%d}<br>Value: %{y:.2f}<extra></extra>"
+    )
+    fig_supply_norm.add_hline(y=1, line_dash="dash")
+
+    fig_gap_norm = px.line(
+        filtered_daily,
+        x="ds",
+        y="gap_norm",
+        title="Normalized Historical Supply–Demand Gap",
+        labels={"ds": "Date", "gap_norm": "Normalized Gap"}
+    )
+    fig_gap_norm.update_traces(
+    hovertemplate="Date: %{x|%Y-%m-%d}<br>Value: %{y:.2f}<extra></extra>"
+    )
+    fig_gap_norm.add_hline(y=0, line_dash="dash")
+
+    st.plotly_chart(fig_demand_norm, use_container_width=True)
+    st.plotly_chart(fig_supply_norm, use_container_width=True)
+    st.plotly_chart(fig_gap_norm, use_container_width=True)
+    
 # ----------------------------
 # Show data table
 # ----------------------------
@@ -402,7 +501,7 @@ if section_choice in ["Show All", "Growth Scenarios & Forecasted Trends"]:
 	- Used to assess long-term energy feasibility  
 	""")
 	fig_d = px.line(
-    	forecast_demand,
+    	filtered_future_demand,
     	x="ds",
     	y="yhat",
     	title="Forecasted Electricity Demand (MW)",
@@ -414,7 +513,7 @@ if section_choice in ["Show All", "Growth Scenarios & Forecasted Trends"]:
 	fig_d.update_layout(template="plotly_white", hovermode="x unified")
 
 	fig_s = px.line(
-    	forecast_supply,
+    	filtered_future_supply,
    	x="ds",
     	y="yhat",
     	title="Forecasted Electricity Supply (MW)",
@@ -425,7 +524,7 @@ if section_choice in ["Show All", "Growth Scenarios & Forecasted Trends"]:
 	)
 	fig_s.update_layout(template="plotly_white", hovermode="x unified")
 
-	plot_df = gap_scen.melt(
+	plot_df = filtered_gap_scen.melt(
     	id_vars="ds",
     	value_vars=["gap_low_mw", "gap_med_mw", "gap_high_mw"],
     	var_name="scenario",
